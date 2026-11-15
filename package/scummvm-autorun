@@ -1,0 +1,4 @@
+--path=Game
+--config=UFOs.ini
+--savepath=Saves
+--auto-detect

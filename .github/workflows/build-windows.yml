@@ -1,0 +1,77 @@
+# Builds UFOs.exe (ScummVM with only the Gnap engine + our changes) for Windows x64
+# and publishes it as the "latest" release of this repository.
+name: Build UFOs for Windows
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git make zip
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-libpng
+            mingw-w64-x86_64-freetype
+
+      - name: Get ScummVM source (pinned version)
+        run: |
+          VER=$(tr -d '\r\n' < SCUMMVM_VERSION)
+          git clone --depth 1 --branch "$VER" https://github.com/scummvm/scummvm.git scummvm
+
+      - name: Apply UFOs changes (overlay)
+        run: |
+          cp -r src/. scummvm/
+
+      - name: Configure (Gnap engine only)
+        working-directory: scummvm
+        run: |
+          ./configure --disable-all-engines --enable-engine=gnap \
+                      --disable-detection-full --enable-release
+
+      - name: Compile
+        working-directory: scummvm
+        run: make -j4
+
+      - name: Package
+        run: |
+          make -C scummvm win32dist-mingw WIN32PATH="$PWD/out"
+          mkdir -p dist/UFOs
+          cp -r out/. dist/UFOs/
+          mv dist/UFOs/scummvm.exe dist/UFOs/UFOs.exe
+          cp -r package/. dist/UFOs/
+          (cd dist && zip -r -9 UFOs-windows-x64.zip UFOs)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UFOs-windows-x64
+          path: dist/UFOs-windows-x64.zip
+
+      - name: Publish as "latest" release
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest dist/UFOs-windows-x64.zip \
+            --title "UFOs for Windows (latest build)" \
+            --notes "Build ${GITHUB_SHA::7}. Unpack, copy the game files into the Game folder, run UFOs.exe. See README." \
+            --prerelease
