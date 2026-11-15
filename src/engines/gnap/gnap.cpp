@@ -23,6 +23,7 @@
 #include "gnap/gnap.h"
 #include "gnap/datarchive.h"
 #include "gnap/gamesys.h"
+#include "gnap/hdlayer.h"
 #include "gnap/resource.h"
 #include "gnap/sound.h"
 
@@ -120,6 +121,8 @@ GnapEngine::GnapEngine(OSystem *syst, const ADGameDescription *gd) :
 	_spriteHandle = nullptr;
 	_cursorSprite = nullptr;
 	_pauseSprite = nullptr;
+	_hd = nullptr;
+	_hdScale = 1;
 	_backgroundSurface = nullptr;
 
 	_wasSavegameLoaded = false;
@@ -196,7 +199,10 @@ GnapEngine::~GnapEngine() {
 Common::Error GnapEngine::run() {
 	// Initialize the graphics mode to ABGR32
 	Graphics::PixelFormat format = Graphics::PixelFormat::createFormatABGR32();
-	initGraphics(800, 600, &format);
+	// UFOs HD: render at hd_scale x the original 800x600 (1 = original behaviour)
+	_hdScale = ConfMan.hasKey("hd_scale") ? CLIP(ConfMan.getInt("hd_scale"), 1, 4) : 2;
+	_hd = nullptr;
+	initGraphics(800 * _hdScale, 600 * _hdScale, &format);
 
 	// We do not support color conversion yet
 	if (_system->getScreenFormat() != format)
@@ -241,6 +247,8 @@ Common::Error GnapEngine::run() {
 	_spriteCache = new SpriteCache(_dat);
 	_soundCache = new SoundCache(_dat);
 	_sequenceCache = new SequenceCache(_dat);
+	if (_hdScale > 1)
+		_hd = new HDLayer(this, _hdScale);
 	_gameSys = new GameSys(this);
 	_soundMan = new SoundMan(this);
 	_debugger = new Debugger();
@@ -257,6 +265,8 @@ Common::Error GnapEngine::run() {
 	delete _gnap;
 	delete _soundMan;
 	delete _gameSys;
+	delete _hd;
+	_hd = nullptr;
 	delete _sequenceCache;
 	delete _soundCache;
 	delete _spriteCache;
@@ -281,14 +291,14 @@ void GnapEngine::updateEvents() {
 			_keyDownState[event.kbd.keycode] = false;
   			break;
 		case Common::EVENT_MOUSEMOVE:
-  			_mousePos = event.mouse;
+  			_mousePos = Common::Point(event.mouse.x / _hdScale, event.mouse.y / _hdScale);
   			break;
 		case Common::EVENT_LBUTTONUP:
   			_mouseButtonState._left = false;
   			break;
 		case Common::EVENT_LBUTTONDOWN:
-			_leftClickMouseX = event.mouse.x;
-			_leftClickMouseY = event.mouse.y;
+			_leftClickMouseX = event.mouse.x / _hdScale;
+			_leftClickMouseY = event.mouse.y / _hdScale;
 			_mouseButtonState._left = true;
 			_mouseClickState._left = true;
   			break;
@@ -536,7 +546,10 @@ void GnapEngine::setCursor(int cursorIndex) {
 		Graphics::WinCursorGroup *cursorGroup = Graphics::WinCursorGroup::createCursorGroup(_exe, Common::WinResourceID(cursorName));
 		if (cursorGroup) {
 			Graphics::Cursor *cursor = cursorGroup->cursors[0].cursor;
-			CursorMan.replaceCursor(cursor);
+			if (_hd)
+				_hd->replaceCursor(cursor);
+			else
+				CursorMan.replaceCursor(cursor);
 			delete cursorGroup;
 		}
 		_cursorIndex = cursorIndex;
@@ -811,6 +824,8 @@ void GnapEngine::mainLoop() {
 		_sequenceCache->purge(true);
 		_soundCache->purge(true);
 		_spriteCache->purge(true);
+		if (_hd)
+			_hd->purgeSprites();
 	}
 
 	if (_backgroundSurface)
@@ -1019,6 +1034,8 @@ void GnapEngine::clearAllKeyStatus1() {
 
 void GnapEngine::deleteSurface(Graphics::Surface **surface) {
 	if (surface && *surface) {
+		if (_hd)
+			_hd->forget(*surface);
 		(*surface)->free();
 		delete *surface;
 		*surface = nullptr;

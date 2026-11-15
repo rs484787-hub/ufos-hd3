@@ -82,11 +82,22 @@ DatManager::~DatManager() {
 void DatManager::open(int index, const char *filename) {
 	close(index);
 	_datArchives[index] = new DatArchive(filename);
+	Common::String name(filename);
+	int dot = name.findLastOf('.');
+	if (dot > 0)
+		name = Common::String(name.c_str(), dot);
+	name.toUppercase();
+	_datNames[index] = name;
+}
+
+Common::String DatManager::getDatName(int index) const {
+	return (index >= 0 && index < kMaxDatArchives && _datArchives[index]) ? _datNames[index] : Common::String();
 }
 
 void DatManager::close(int index) {
 	delete _datArchives[index];
 	_datArchives[index] = nullptr;
+	_datNames[index].clear();
 }
 
 byte *DatManager::loadResource(int resourceId) {

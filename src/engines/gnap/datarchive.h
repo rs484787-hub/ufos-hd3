@@ -66,8 +66,11 @@ public:
 	byte *loadResource(int resourceId);
 	uint32 getResourceType(int resourceId);
 	uint32 getResourceSize(int resourceId);
+	// UFOs HD: upper-case archive name without extension ("JOHN_N"), "" if closed
+	Common::String getDatName(int index) const;
 protected:
 	DatArchive *_datArchives[kMaxDatArchives];
+	Common::String _datNames[kMaxDatArchives];
 };
 
 int ridToDatIndex(int resourceId);

@@ -20,6 +20,7 @@
  */
 
 #include "gnap/gamesys.h"
+#include "gnap/hdlayer.h"
 #include "gnap/fontdata.h"
 #include "graphics/fontman.h"
 #include "graphics/font.h"
@@ -73,6 +74,8 @@ GameSys::GameSys(GnapEngine *vm) : _vm(vm) {
 }
 
 GameSys::~GameSys() {
+	if (_frontSurface && _vm->_hd)
+		_vm->_hd->forget(_frontSurface);
 	if (_frontSurface)
 		_frontSurface->free();
 	delete _frontSurface;
@@ -189,6 +192,8 @@ void GameSys::setBackgroundSurface(Graphics::Surface *surface, int a4, int a5, i
 
 	if (!_frontSurface || _frontSurface->w != surface->w || _frontSurface->h != surface->h) {
 		debugC(kDebugBasic, "GameSys::setBackgroundSurface() Creating background working surface");
+		if (_frontSurface && _vm->_hd)
+			_vm->_hd->forget(_frontSurface);
 		if (_frontSurface)
 			_frontSurface->free();
 		delete _frontSurface;
@@ -197,7 +202,14 @@ void GameSys::setBackgroundSurface(Graphics::Surface *surface, int a4, int a5, i
 	}
 
 	memcpy(_frontSurface->getPixels(), surface->getPixels(), surface->pitch * surface->h);
-	_vm->_system->copyRectToScreen(_frontSurface->getPixels(), _frontSurface->pitch, 0, 0, _frontSurface->w, _frontSurface->h);
+	if (HDLayer *hd = _vm->_hd) {
+		Graphics::Surface *bgHD = hd->twin(surface);
+		Graphics::Surface *frontHD = hd->twin(_frontSurface);
+		hd->copyRect(frontHD, bgHD, Common::Rect(0, 0, frontHD->w, frontHD->h));
+		hd->presentAll(frontHD);
+	} else {
+		_vm->_system->copyRectToScreen(_frontSurface->getPixels(), _frontSurface->pitch, 0, 0, _frontSurface->w, _frontSurface->h);
+	}
 
 	_backgroundImageValue1 = a4;
 	_backgroundImageValue3 = a6;
@@ -239,6 +251,11 @@ void GameSys::drawSpriteToBackground(int x, int y, int resourceId) {
 	int spriteHeight = spriteResource->_height;
 	Common::Rect dstRect(0, 0, spriteWidth, spriteHeight);
 	blitSprite32(_backgroundSurface, x, y, sourcePixels, spriteResource->_width, dstRect, sourcePalette, spriteResource->_transparent);
+	if (HDLayer *hd = _vm->_hd) {
+		const Graphics::Surface *spr = hd->sprite(resourceId, spriteResource);
+		const Common::Rect f(x * hd->scale(), y * hd->scale(), x * hd->scale() + spr->w, y * hd->scale() + spr->h);
+		hd->blit(hd->twin(_backgroundSurface), f, f, spr, !spriteResource->_transparent);
+	}
 	_vm->_spriteCache->release(resourceId);
 
 	// Add dirty rect so the modified background is redrawn
@@ -249,6 +266,8 @@ Graphics::Surface *GameSys::allocSurface(int width, int height) {
 	Graphics::Surface *surface = new Graphics::Surface();
 	surface->create(width, height, _backgroundSurface->format);
 	surface->fillRect(Common::Rect(0, 0, surface->w, surface->h), 0xFFFFFF00);
+	if (_vm->_hd)
+		_vm->_hd->resetTwin(surface, true);
 	return surface;
 }
 
@@ -270,6 +289,11 @@ void GameSys::drawSpriteToSurface(Graphics::Surface *surface, int x, int y, int 
 	byte *sourcePixels = spriteResource->_pixels;
 	Common::Rect dstRect(0, 0, spriteResource->_width, spriteResource->_height);
 	blitSprite32(surface, x, y, sourcePixels, spriteResource->_width, dstRect, sourcePalette, true);
+	if (HDLayer *hd = _vm->_hd) {
+		const Graphics::Surface *spr = hd->sprite(resourceId, spriteResource);
+		const Common::Rect f(x * hd->scale(), y * hd->scale(), x * hd->scale() + spr->w, y * hd->scale() + spr->h);
+		hd->blit(hd->twin(surface), f, f, spr, false);
+	}
 	_vm->_spriteCache->release(resourceId);
 }
 
@@ -282,6 +306,7 @@ void GameSys::drawTextToSurface(Graphics::Surface *surface, int x, int y, byte r
 	}
 
 	uint32 color = surface->format.RGBToColor(r, g, b);
+	const int textX = x, textY = y;
 	if (_vm->_font) {
 		_vm->_font->drawString(surface, text, x, y, _vm->_font->getStringWidth(text), color);
 
@@ -308,6 +333,13 @@ void GameSys::drawTextToSurface(Graphics::Surface *surface, int x, int y, byte r
 
 		if (doDirty)
 			insertDirtyRect(Common::Rect(x, y, x + getTextWidth(text), y + 16));
+	}
+
+	if (_vm->_hd) {
+		// text is drawn at 1x and upscaled into the HD twin
+		const int tw = _vm->_font ? _vm->_font->getStringWidth(text) : getTextWidth(text);
+		const int th = _vm->_font ? _vm->_font->getFontHeight() : 16;
+		_vm->_hd->syncRect(surface, Common::Rect(textX, textY, textX + tw + 1, textY + th + 1));
 	}
 }
 
@@ -342,6 +374,10 @@ void GameSys::fillSurface(Graphics::Surface *surface, int x, int y, int width, i
 		insertDirtyRect(rect);
 	} else {
 		surface->fillRect(rect, surface->format.RGBToColor(r, g, b));
+	}
+	if (HDLayer *hd = _vm->_hd) {
+		Graphics::Surface *target = surface ? surface : _backgroundSurface;
+		hd->fillRect(hd->twin(target), hd->up(rect), target->format.RGBToColor(r, g, b));
 	}
 }
 
@@ -387,6 +423,14 @@ Graphics::Surface *GameSys::loadBitmap(int resourceId) {
 		error("GameSys::loadBitmap() Could not load bitmap resource %08X", resourceId);
 	bmpSurface = bmp.getSurface()->convertTo(_vm->_system->getScreenFormat());
 	delete[] resourceData;
+	if (HDLayer *hd = _vm->_hd) {
+		// replacement background from the HD folder, otherwise upscaled lazily
+		Graphics::Surface *hdBmp = hd->loadBitmapOverride(resourceId, bmpSurface->w, bmpSurface->h);
+		if (hdBmp)
+			hd->setTwin(bmpSurface, hdBmp);
+		else
+			hd->forget(bmpSurface);
+	}
 	return bmpSurface;
 }
 
@@ -409,6 +453,13 @@ void GameSys::drawBitmap(int resourceId) {
 		memcpy(dst, src, pitch);
 		src += pitch;
 		dst += pitch;
+	}
+
+	if (HDLayer *hd = _vm->_hd) {
+		Graphics::Surface *srcHD = hd->twin(bmpSurface);
+		Graphics::Surface *bgHD = hd->twin(_backgroundSurface);
+		hd->copyRect(bgHD, srcHD, Common::Rect(0, 0, bgHD->w, bgHD->h));
+		hd->forget(bmpSurface);
 	}
 
 	bmpSurface->free();
@@ -630,6 +681,11 @@ void GameSys::restoreBackgroundRect(const Common::Rect &rect) {
 		src += _backgroundSurface->pitch;
 		dst += _frontSurface->pitch;
 	}
+	if (HDLayer *hd = _vm->_hd) {
+		const Common::Rect r = hd->up(clipRect);
+		hd->copyRect(hd->twin(_frontSurface), hd->twin(_backgroundSurface), r);
+		hd->markDirty(r);
+	}
 }
 
 void GameSys::blitSurface32(Graphics::Surface *destSurface, int x, int y, Graphics::Surface *sourceSurface,
@@ -766,13 +822,22 @@ void GameSys::seqDrawStaticFrame(Graphics::Surface *surface, SequenceFrame &fram
 
 	const int x = clipRect.left, y = clipRect.top;
 
+	if (HDLayer *hd = _vm->_hd) {
+		const int s = hd->scale();
+		Graphics::Surface *src = hd->twin(surface);
+		const Common::Rect f(frame._rect.left * s, frame._rect.top * s, frame._rect.left * s + src->w, frame._rect.top * s + src->h);
+		const Common::Rect c = hd->up(clipRect);
+		hd->blit(hd->twin(_frontSurface), f, c, src, false);
+		hd->markDirty(c);
+	}
+
 	clipRect.translate(-frame._rect.left, -frame._rect.top);
 
 	// TODO Save transparent flag somewhere
 	blitSurface32(_frontSurface, x, y, surface, clipRect, true);
 }
 
-void GameSys::seqDrawSpriteFrame(SpriteResource *spriteResource, SequenceFrame &frame, Common::Rect *subRect) {
+void GameSys::seqDrawSpriteFrame(SpriteResource *spriteResource, SequenceFrame &frame, Common::Rect *subRect, int resourceId) {
 	debugC(kDebugBasic, "GameSys::seqDrawSpriteFrame() spriteId: %04X; rect: (%d, %d, %d, %d)",
 		frame._spriteId, frame._rect.left, frame._rect.top, frame._rect.right, frame._rect.bottom);
 
@@ -790,6 +855,17 @@ void GameSys::seqDrawSpriteFrame(SpriteResource *spriteResource, SequenceFrame &
 	const int x = clipRect.left, y = clipRect.top;
 
 	debugC(kDebugBasic, "GameSys::seqDrawSpriteFrame() destX: %d; destY: %d; frame.isScaled: %d", x, y, frame._isScaled ? 1 : 0);
+
+	if (HDLayer *hd = _vm->_hd) {
+		const int s = hd->scale();
+		const Graphics::Surface *spr = hd->sprite(resourceId, spriteResource);
+		Common::Rect f = hd->up(frame._rect);
+		if (!frame._isScaled)
+			f = Common::Rect(frame._rect.left * s, frame._rect.top * s, frame._rect.left * s + spr->w, frame._rect.top * s + spr->h);
+		const Common::Rect c = hd->up(clipRect);
+		hd->blit(hd->twin(_frontSurface), f, c, spr, false);
+		hd->markDirty(c);
+	}
 
 	// 32bit sprite drawing
 	if (frame._isScaled) {
@@ -868,7 +944,7 @@ void GameSys::drawSprites() {
 				} else {
 					int resourceId = (gfxItem5->_sequenceId & 0xFFFF0000) | gfxItem5->_currFrame._spriteId;
 					SpriteResource *spriteResource = _vm->_spriteCache->get(resourceId);
-					seqDrawSpriteFrame(spriteResource, gfxItem5->_currFrame, nullptr);
+					seqDrawSpriteFrame(spriteResource, gfxItem5->_currFrame, nullptr, resourceId);
 					_vm->_spriteCache->release(resourceId);
 				}
 			}
@@ -880,7 +956,7 @@ void GameSys::drawSprites() {
 				int resourceId = (gfxItem5->_sequenceId & 0xFFFF0000) | gfxItem5->_prevFrame._spriteId;
 				SpriteResource *spriteResource = _vm->_spriteCache->get(resourceId);
 				for (int n = 0; n < gfxItem5->_updRectsCount; ++n)
-					seqDrawSpriteFrame(spriteResource, gfxItem5->_prevFrame, &gfxItem5->_updRects[n]);
+					seqDrawSpriteFrame(spriteResource, gfxItem5->_prevFrame, &gfxItem5->_updRects[n], resourceId);
 				_vm->_spriteCache->release(resourceId);
 			}
 		}
@@ -891,6 +967,8 @@ void GameSys::drawSprites() {
 
 void GameSys::updateRect(const Common::Rect &r) {
 	debugC(kDebugBasic, "GameSys::updateRect() %d, %d, %d, %d [%d, %d]", r.left, r.top, r.right, r.bottom, r.width(), r.height());
+	if (_vm->_hd)
+		return;  // HD: the screen is fed from the HD front buffer in updateScreen()
 	if (r.width() > 0 && r.height() > 0) {
 		byte *pixels = (byte *)_frontSurface->getBasePtr(r.left, r.top);
 		_vm->_system->copyRectToScreen(pixels, _frontSurface->pitch, r.left, r.top,
@@ -932,6 +1010,9 @@ void GameSys::updateScreen() {
 	}
 
 	updateRect(Common::Rect(0, 0, 800, 600));
+
+	if (_vm->_hd && _frontSurface)
+		_vm->_hd->present(_vm->_hd->twin(_frontSurface));
 
 	debugC(kDebugBasic, "GameSys::updateScreen() OK");
 }

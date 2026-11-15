@@ -7,6 +7,7 @@ MODULE_OBJS := \
 	gamesys.o \
 	gnap.o \
 	grid.o \
+	hdlayer.o \
 	menu.o \
 	metaengine.o \
 	music.o \

@@ -23,6 +23,7 @@
 
 #include "gnap/gnap.h"
 #include "gnap/gamesys.h"
+#include "gnap/hdlayer.h"
 #include "gnap/resource.h"
 #include "gnap/scenes/intro.h"
 
@@ -67,10 +68,30 @@ void SceneIntro::run() {
 		warning("Unable to open video 'hoffman.avi' - Skipping intro");
 		return;
 	}
-	videoDecoder->start();
-
 	int vidPosX = (800 - videoDecoder->getWidth()) / 2;
 	int vidPosY = (600 - videoDecoder->getHeight()) / 2;
+	const Common::Rect vidRect(vidPosX, vidPosY, vidPosX + videoDecoder->getWidth(), vidPosY + videoDecoder->getHeight());
+	bool hdVideo = false;
+
+	// UFOs HD: HD/video/hoffman.avi replaces the original clip (any resolution;
+	// it is scaled into the original 250x310 window area)
+	if (_vm->_hd) {
+		Common::FSNode ov = _vm->_hd->videoOverride("hoffman.avi");
+		if (ov.exists()) {
+			Video::VideoDecoder *hdDecoder = new Video::AVIDecoder();
+			Common::SeekableReadStream *ovStream = ov.createReadStream();
+			if (ovStream && hdDecoder->loadStream(ovStream)) {
+				delete videoDecoder;
+				videoDecoder = hdDecoder;
+				hdVideo = true;
+			} else {
+				warning("UFOs HD: could not play HD/video/hoffman.avi, using the original");
+				delete hdDecoder;
+			}
+		}
+	}
+
+	videoDecoder->start();
 	bool skipVideo = false;
 
 	_vm->screenEffect(1, 255, 255, 255);
@@ -78,7 +99,28 @@ void SceneIntro::run() {
 	while (!_vm->shouldQuit() && !videoDecoder->endOfVideo() && !skipVideo) {
 		if (videoDecoder->needsUpdate()) {
 			const Graphics::Surface *frame = videoDecoder->decodeNextFrame();
-			if (frame) {
+			if (frame && _vm->_hd) {
+				const byte *pal = videoDecoder->getPalette();
+				Graphics::Surface *frame1 = (frame->format.bytesPerPixel == 1 && pal)
+					? frame->convertTo(_vm->_system->getScreenFormat(), pal, 256)
+					: frame->convertTo(_vm->_system->getScreenFormat());
+				if (frame->format.bytesPerPixel == 4 && !hdVideo) {
+					// the original intro AVI is stored upside down (see below)
+					for (uint16 y = 0; y < frame1->h / 2; y++) {
+						uint32 *ptrFrom = (uint32 *)frame1->getBasePtr(0, y);
+						uint32 *ptrTo = (uint32 *)frame1->getBasePtr(0, frame1->h - y - 1);
+						for (uint16 x = 0; x < frame1->w; x++) {
+							uint32 t = ptrFrom[x];
+							ptrFrom[x] = ptrTo[x];
+							ptrTo[x] = t;
+						}
+					}
+				}
+				_vm->_hd->drawScaledToScreen(frame1, vidRect);
+				frame1->free();
+				delete frame1;
+				_vm->_system->updateScreen();
+			} else if (frame) {
 				if (frame->format.bytesPerPixel == 1) {
 					_vm->_system->copyRectToScreen(frame->getPixels(), frame->pitch, vidPosX, vidPosY, frame->w, frame->h);
 				} else if (frame->format.bytesPerPixel != 4) {

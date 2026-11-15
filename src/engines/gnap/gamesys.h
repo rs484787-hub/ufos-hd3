@@ -190,7 +190,7 @@ public:
 		Common::Rect &destRect, byte *sourcePixels, int sourceWidth, Common::Rect &sourceRect, uint32 *sourcePalette);
 
 	void seqDrawStaticFrame(Graphics::Surface *surface, SequenceFrame &frame, Common::Rect *subRect);
-	void seqDrawSpriteFrame(SpriteResource *spriteResource, SequenceFrame &frame, Common::Rect *subRect);
+	void seqDrawSpriteFrame(SpriteResource *spriteResource, SequenceFrame &frame, Common::Rect *subRect, int resourceId);
 
 	void drawSprites();
 	void updateRect(const Common::Rect &r);

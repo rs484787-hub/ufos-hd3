@@ -56,6 +56,7 @@ class DatManager;
 class SequenceResource;
 class SpriteResource;
 class GameSys;
+class HDLayer;
 class SoundMan;
 class MusicPlayer;
 
@@ -240,6 +241,8 @@ public:
 	SoundCache *_soundCache;
 	SequenceCache *_sequenceCache;
 	GameSys *_gameSys;
+	HDLayer *_hd;   // UFOs HD presentation layer (nullptr when hd_scale = 1)
+	int _hdScale;
 	SoundMan *_soundMan;
 	Debugger *_debugger;
 	Scene *_scene;
