@@ -389,6 +389,39 @@ Graphics::Surface *HDLayer::loadBitmapOverride(int resourceId, int w, int h) {
 	return hd;
 }
 
+void HDLayer::adjustFrameRect(int resourceId, Common::Rect &r) {
+	int entry;
+	Common::String datName;
+	keyFor(resourceId, &entry, &datName);
+	if (datName.empty())
+		return;
+	Common::HashMap<Common::String, OffsetMap>::iterator it = _offsets.find(datName);
+	if (it == _offsets.end()) {
+		OffsetMap &map = _offsets[datName];
+		if (_hdRootValid) {
+			Common::FSNode f = _hdRoot.getChild(datName).getChild("offsets.txt");
+			Common::SeekableReadStream *st = f.exists() ? f.createReadStream() : nullptr;
+			if (st) {
+				while (!st->eos() && !st->err()) {
+					Common::String line = st->readLine();
+					line.trim();
+					if (line.empty() || line[0] == '#' || line[0] == ';')
+						continue;
+					int n = 0, dx = 0, dy = 0;
+					if (sscanf(line.c_str(), "%d %d %d", &n, &dx, &dy) == 3)
+						map[n] = Common::Point(dx, dy);
+				}
+				delete st;
+				debug(1, "UFOs HD: %d position offset(s) in HD/%s/offsets.txt", map.size(), datName.c_str());
+			}
+		}
+		it = _offsets.find(datName);
+	}
+	OffsetMap::const_iterator o = it->_value.find(entry);
+	if (o != it->_value.end())
+		r.translate(o->_value.x, o->_value.y);
+}
+
 // --- drawing -------------------------------------------------------------------
 
 void HDLayer::blit(Graphics::Surface *dst, const Common::Rect &frame, const Common::Rect &clipIn,

@@ -551,6 +551,8 @@ void GameSys::seqInsertGfx(int index, int duration) {
 				gfxItem->_currFrame = animation->frames[j - 1];
 			if (gfxItem->_currFrame._spriteId != -1 && (seqItem->_x != 0 || seqItem->_y != 0))
 				gfxItem->_currFrame._rect.translate(seqItem->_x, seqItem->_y);
+			if (_vm->_hd && gfxItem->_currFrame._spriteId != -1 && !(seqItem->_flags & kSeqScale))
+				_vm->_hd->adjustFrameRect((gfxItem->_sequenceId & 0xFFFF0000) | gfxItem->_currFrame._spriteId, gfxItem->_currFrame._rect);
 			// Update sprite scaling
 			if ((seqItem->_flags & kSeqScale) && gfxItem->_currFrame._rect.bottom >= _backgroundImageValue1 && gfxItem->_currFrame._rect.bottom <= _backgroundImageValue3) {
 				int scaleValue = _backgroundImageValue2	+ (gfxItem->_currFrame._rect.bottom - _backgroundImageValue1) *
@@ -1155,6 +1157,8 @@ void GameSys::fatUpdateFrame() {
 								gfxItem->_currFrame = animation->frames[currFrameNum - 1];
 							if (gfxItem->_currFrame._spriteId != -1 && (seqItem->_x != 0 || seqItem->_y != 0))
 								gfxItem->_currFrame._rect.translate(seqItem->_x, seqItem->_y);
+							if (_vm->_hd && gfxItem->_currFrame._spriteId != -1 && !(seqItem->_flags & kSeqScale))
+								_vm->_hd->adjustFrameRect((gfxItem->_sequenceId & 0xFFFF0000) | gfxItem->_currFrame._spriteId, gfxItem->_currFrame._rect);
 							// Update sprite scaling
 							if ((seqItem->_flags & kSeqScale) && gfxItem->_currFrame._rect.bottom >= _backgroundImageValue1 && gfxItem->_currFrame._rect.bottom <= _backgroundImageValue3) {
 								int v17 = _backgroundImageValue2 + (gfxItem->_currFrame._rect.bottom - _backgroundImageValue1) *

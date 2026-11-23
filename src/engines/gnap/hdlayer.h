@@ -55,6 +55,9 @@ public:
 	// HD replacement for a background bitmap, or nullptr (caller owns result)
 	Graphics::Surface *loadBitmapOverride(int resourceId, int w, int h);
 	void purgeSprites();
+	// Optional per-sprite position offsets (1x pixels) from HD/<DAT>/offsets.txt,
+	// lines "NNN dx dy". Used when redrawn backgrounds moved a detail.
+	void adjustFrameRect(int resourceId, Common::Rect &r);
 
 	// --- drawing (all rects in HD coordinates) ---------------------------
 	void blit(Graphics::Surface *dst, const Common::Rect &frame, const Common::Rect &clip,
@@ -88,6 +91,7 @@ private:
 	typedef Common::HashMap<Graphics::Surface *, Graphics::Surface *, PtrHash> TwinMap;
 	typedef Common::HashMap<Common::String, CacheEntry> SpriteMap;
 	typedef Common::HashMap<int, Common::FSNode> FileIndex;
+	typedef Common::HashMap<int, Common::Point> OffsetMap;
 
 	GnapEngine *_vm;
 	int _scale;
@@ -96,6 +100,7 @@ private:
 	Common::List<Common::String> _lru;
 	uint32 _cacheBytes, _cacheLimit;
 	Common::HashMap<Common::String, FileIndex> _fileIndex;
+	Common::HashMap<Common::String, OffsetMap> _offsets;
 	Common::FSNode _hdRoot;
 	bool _hdRootValid;
 	Common::Rect _dirty;
