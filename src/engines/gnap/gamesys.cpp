@@ -874,8 +874,14 @@ void GameSys::seqDrawSpriteFrame(SpriteResource *spriteResource, SequenceFrame &
 		Common::Rect sourceRect(0, 0, spriteResource->_width, spriteResource->_height);
 		blitSpriteScaled32(_frontSurface,	frame._rect, clipRect, sourcePixels, spriteResource->_width, sourceRect, sourcePalette);
 	} else {
-		clipRect.translate(-frame._rect.left, -frame._rect.top);
-		blitSprite32(_frontSurface, x, y, sourcePixels, spriteResource->_width, clipRect, sourcePalette, true);
+		// (UFOs HD may enlarge frame._rect; keep the 1x copy inside the real sprite)
+		Common::Rect inSprite(frame._rect.left, frame._rect.top, frame._rect.left + spriteResource->_width, frame._rect.top + spriteResource->_height);
+		Common::Rect clip1x;
+		if (!intersectRect(clip1x, clipRect, inSprite))
+			return;
+		const int x1 = clip1x.left, y1 = clip1x.top;
+		clip1x.translate(-frame._rect.left, -frame._rect.top);
+		blitSprite32(_frontSurface, x1, y1, sourcePixels, spriteResource->_width, clip1x, sourcePalette, true);
 	}
 }
 

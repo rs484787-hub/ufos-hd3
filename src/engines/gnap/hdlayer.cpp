@@ -317,7 +317,13 @@ const Graphics::Surface *HDLayer::sprite(int resourceId, SpriteResource *res) {
 		return it->_value.surface;
 	}
 
-	const int w = res->_width * _scale, h = res->_height * _scale;
+	int w = res->_width * _scale, h = res->_height * _scale;
+	if (const Placement *p = placementFor(resourceId)) {
+		if (p->w > 0) {
+			w = p->w * _scale;
+			h = p->h * _scale;
+		}
+	}
 	Graphics::Surface *hd = nullptr;
 
 	const FileIndex &idx = indexFor(datName);
@@ -338,10 +344,10 @@ const Graphics::Surface *HDLayer::sprite(int resourceId, SpriteResource *res) {
 		hd = newSurface(w, h, true);
 		const int pitch = (res->_width + 3) & ~3;
 		for (int y = 0; y < h; ++y) {
-			const byte *src = res->_pixels + (y / _scale) * pitch;
+			const byte *src = res->_pixels + (y * res->_height / h) * pitch;
 			uint32 *dst = (uint32 *)hd->getBasePtr(0, y);
 			for (int x = 0; x < w; ++x) {
-				const byte idxPx = src[x / _scale];
+				const byte idxPx = src[x * res->_width / w];
 				const uint32 rgb = res->_palette[idxPx];
 				byte px[4];
 				px[0] = idxPx ? 0xFF : 0x00;
@@ -389,12 +395,12 @@ Graphics::Surface *HDLayer::loadBitmapOverride(int resourceId, int w, int h) {
 	return hd;
 }
 
-void HDLayer::adjustFrameRect(int resourceId, Common::Rect &r) {
+const HDLayer::Placement *HDLayer::placementFor(int resourceId) {
 	int entry;
 	Common::String datName;
 	keyFor(resourceId, &entry, &datName);
 	if (datName.empty())
-		return;
+		return nullptr;
 	Common::HashMap<Common::String, OffsetMap>::iterator it = _offsets.find(datName);
 	if (it == _offsets.end()) {
 		OffsetMap &map = _offsets[datName];
@@ -407,19 +413,34 @@ void HDLayer::adjustFrameRect(int resourceId, Common::Rect &r) {
 					line.trim();
 					if (line.empty() || line[0] == '#' || line[0] == ';')
 						continue;
-					int n = 0, dx = 0, dy = 0;
-					if (sscanf(line.c_str(), "%d %d %d", &n, &dx, &dy) == 3)
-						map[n] = Common::Point(dx, dy);
+					int n = 0;
+					Placement p = { 0, 0, 0, 0 };
+					int got = sscanf(line.c_str(), "%d %d %d %d %d", &n, &p.dx, &p.dy, &p.w, &p.h);
+					if (got >= 3) {
+						if (got < 5 || p.w <= 0 || p.h <= 0)
+							p.w = p.h = 0;
+						map[n] = p;
+					}
 				}
 				delete st;
-				debug(1, "UFOs HD: %d position offset(s) in HD/%s/offsets.txt", map.size(), datName.c_str());
+				debug(1, "UFOs HD: %d placement(s) in HD/%s/offsets.txt", map.size(), datName.c_str());
 			}
 		}
 		it = _offsets.find(datName);
 	}
 	OffsetMap::const_iterator o = it->_value.find(entry);
-	if (o != it->_value.end())
-		r.translate(o->_value.x, o->_value.y);
+	return o != it->_value.end() ? &o->_value : nullptr;
+}
+
+void HDLayer::adjustFrameRect(int resourceId, Common::Rect &r) {
+	const Placement *p = placementFor(resourceId);
+	if (!p)
+		return;
+	r.translate(p->dx, p->dy);
+	if (p->w > 0) {
+		r.right = r.left + p->w;
+		r.bottom = r.top + p->h;
+	}
 }
 
 // --- drawing -------------------------------------------------------------------
